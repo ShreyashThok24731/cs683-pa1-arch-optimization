@@ -4,12 +4,20 @@
 #include <chrono>
 #include <xmmintrin.h>
 #include <immintrin.h>
+#ifdef __AVX512F__
+#pragma GCC target("avx2","sse2","fma","avx512f")
+#else
 #pragma GCC target("avx2","sse2","fma")
+#endif
 
 #include "helper.h"
 
 #ifndef TILE_SIZE
 #define TILE_SIZE 32
+#endif
+
+#ifndef SIMD_WIDTH
+#define SIMD_WIDTH 256
 #endif
 
 void naive_mat_mul(double *A, double *B, double *C, int size) {
@@ -18,6 +26,38 @@ void naive_mat_mul(double *A, double *B, double *C, int size) {
             for (int k = 0; k < size; k++) {
                 C[i * size + j] += A[i * size + k] * B[k * size + j];
             }
+        }
+    }
+}
+
+void loop_reorder_mat_mul(double *A, double *B, double *C, int size) {
+    for (int i = 0; i < size; i++) {
+        for (int k = 0; k < size; k++) {
+            double a = A[i * size + k];
+            for (int j = 0; j < size; j++) {
+                C[i * size + j] += a * B[k * size + j];
+            }
+        }
+    }
+}
+
+void loop_unroll_mat_mul(double *A, double *B, double *C, int size) {
+    int k_end = size - (size % 4);
+
+    for (int i = 0; i < size; i++) {
+        for (int j = 0; j < size; j++) {
+            double c = C[i * size + j];
+            int k;
+            for (k = 0; k < k_end; k += 4) {
+                c += A[i * size + k    ] * B[(k    ) * size + j];
+                c += A[i * size + k + 1] * B[(k + 1) * size + j];
+                c += A[i * size + k + 2] * B[(k + 2) * size + j];
+                c += A[i * size + k + 3] * B[(k + 3) * size + j];
+            }
+            for (; k < size; k++) {
+                c += A[i * size + k] * B[k * size + j];
+            }
+            C[i * size + j] = c;
         }
     }
 }
@@ -105,7 +145,27 @@ void tile_mat_mul(double *A, double *B, double *C, int size, int tile_size) {
     }
 }
 
-void simd_mat_mul(double *A, double *B, double *C, int size) {
+void simd_mat_mul_128(double *A, double *B, double *C, int size) {
+    const int V = 2;
+    int j_end = size - (size % V);
+
+    for (int i = 0; i < size; i++) {
+        for (int k = 0; k < size; k++) {
+            __m128d a = _mm_set1_pd(A[i * size + k]);
+            int j;
+            for (j = 0; j < j_end; j += V) {
+                __m128d b = _mm_loadu_pd(&B[k * size + j]);
+                __m128d c = _mm_loadu_pd(&C[i * size + j]);
+                _mm_storeu_pd(&C[i * size + j], _mm_fmadd_pd(a, b, c));
+            }
+            for (; j < size; j++) {
+                C[i * size + j] += A[i * size + k] * B[k * size + j];
+            }
+        }
+    }
+}
+
+void simd_mat_mul_256(double *A, double *B, double *C, int size) {
     const int V = 4;
     int j_end = size - (size % V);
 
@@ -125,7 +185,139 @@ void simd_mat_mul(double *A, double *B, double *C, int size) {
     }
 }
 
-void combination_mat_mul(double *A, double *B, double *C, int size, int tile_size) {
+#ifdef __AVX512F__
+void simd_mat_mul_512(double *A, double *B, double *C, int size) {
+    const int V = 8;
+    int j_end = size - (size % V);
+
+    for (int i = 0; i < size; i++) {
+        for (int k = 0; k < size; k++) {
+            __m512d a = _mm512_set1_pd(A[i * size + k]);
+            int j;
+            for (j = 0; j < j_end; j += V) {
+                __m512d b = _mm512_loadu_pd(&B[k * size + j]);
+                __m512d c = _mm512_loadu_pd(&C[i * size + j]);
+                _mm512_storeu_pd(&C[i * size + j], _mm512_fmadd_pd(a, b, c));
+            }
+            for (; j < size; j++) {
+                C[i * size + j] += A[i * size + k] * B[k * size + j];
+            }
+        }
+    }
+}
+#endif
+
+void simd_mat_mul(double *A, double *B, double *C, int size) {
+#if SIMD_WIDTH == 128
+    simd_mat_mul_128(A, B, C, size);
+#elif SIMD_WIDTH == 512
+#ifdef __AVX512F__
+    simd_mat_mul_512(A, B, C, size);
+#else
+#error "SIMD_WIDTH=512 requested but AVX-512 is not enabled (build with -mavx512f)"
+#endif
+#else
+    simd_mat_mul_256(A, B, C, size);
+#endif
+}
+
+void combination_mat_mul_128(double *A, double *B, double *C, int size, int tile_size) {
+    for (int i = 0; i < size; i += tile_size) {
+        for (int j = 0; j < size; j += tile_size) {
+            for (int k = 0; k < size; k += tile_size) {
+
+                int i_max = (i + tile_size < size) ? i + tile_size : size;
+                int j_max = (j + tile_size < size) ? j + tile_size : size;
+                int k_max = (k + tile_size < size) ? k + tile_size : size;
+                int j_vec_end = j + ((j_max - j) & ~3);
+
+                for (int ii = i; ii < i_max; ii++) {
+                    int jj;
+                    for (jj = j; jj < j_vec_end; jj += 4) {
+                        __m128d c0 = _mm_loadu_pd(&C[ii * size + jj    ]);
+                        __m128d c1 = _mm_loadu_pd(&C[ii * size + jj + 2]);
+
+                        int kk;
+                        int kk_unroll_end = k + ((k_max - k) & ~3);
+                        for (kk = k; kk < kk_unroll_end; kk += 4) {
+                            for (int u = 0; u < 4; u++) {
+                                __m128d a = _mm_set1_pd(A[ii * size + kk + u]);
+                                c0 = _mm_fmadd_pd(a, _mm_loadu_pd(&B[(kk + u) * size + jj    ]), c0);
+                                c1 = _mm_fmadd_pd(a, _mm_loadu_pd(&B[(kk + u) * size + jj + 2]), c1);
+                            }
+                        }
+                        for (; kk < k_max; kk++) {
+                            __m128d a = _mm_set1_pd(A[ii * size + kk]);
+                            c0 = _mm_fmadd_pd(a, _mm_loadu_pd(&B[kk * size + jj    ]), c0);
+                            c1 = _mm_fmadd_pd(a, _mm_loadu_pd(&B[kk * size + jj + 2]), c1);
+                        }
+
+                        _mm_storeu_pd(&C[ii * size + jj    ], c0);
+                        _mm_storeu_pd(&C[ii * size + jj + 2], c1);
+                    }
+                    for (; jj < j_max; jj++) {
+                        double t = C[ii * size + jj];
+                        for (int kk = k; kk < k_max; kk++) {
+                            t += A[ii * size + kk] * B[kk * size + jj];
+                        }
+                        C[ii * size + jj] = t;
+                    }
+                }
+            }
+        }
+    }
+}
+
+#ifdef __AVX512F__
+void combination_mat_mul_512(double *A, double *B, double *C, int size, int tile_size) {
+    for (int i = 0; i < size; i += tile_size) {
+        for (int j = 0; j < size; j += tile_size) {
+            for (int k = 0; k < size; k += tile_size) {
+
+                int i_max = (i + tile_size < size) ? i + tile_size : size;
+                int j_max = (j + tile_size < size) ? j + tile_size : size;
+                int k_max = (k + tile_size < size) ? k + tile_size : size;
+                int j_vec_end = j + ((j_max - j) & ~15);
+
+                for (int ii = i; ii < i_max; ii++) {
+                    int jj;
+                    for (jj = j; jj < j_vec_end; jj += 16) {
+                        __m512d c0 = _mm512_loadu_pd(&C[ii * size + jj    ]);
+                        __m512d c1 = _mm512_loadu_pd(&C[ii * size + jj + 8]);
+
+                        int kk;
+                        int kk_unroll_end = k + ((k_max - k) & ~3);
+                        for (kk = k; kk < kk_unroll_end; kk += 4) {
+                            for (int u = 0; u < 4; u++) {
+                                __m512d a = _mm512_set1_pd(A[ii * size + kk + u]);
+                                c0 = _mm512_fmadd_pd(a, _mm512_loadu_pd(&B[(kk + u) * size + jj    ]), c0);
+                                c1 = _mm512_fmadd_pd(a, _mm512_loadu_pd(&B[(kk + u) * size + jj + 8]), c1);
+                            }
+                        }
+                        for (; kk < k_max; kk++) {
+                            __m512d a = _mm512_set1_pd(A[ii * size + kk]);
+                            c0 = _mm512_fmadd_pd(a, _mm512_loadu_pd(&B[kk * size + jj    ]), c0);
+                            c1 = _mm512_fmadd_pd(a, _mm512_loadu_pd(&B[kk * size + jj + 8]), c1);
+                        }
+
+                        _mm512_storeu_pd(&C[ii * size + jj    ], c0);
+                        _mm512_storeu_pd(&C[ii * size + jj + 8], c1);
+                    }
+                    for (; jj < j_max; jj++) {
+                        double t = C[ii * size + jj];
+                        for (int kk = k; kk < k_max; kk++) {
+                            t += A[ii * size + kk] * B[kk * size + jj];
+                        }
+                        C[ii * size + jj] = t;
+                    }
+                }
+            }
+        }
+    }
+}
+#endif
+
+void combination_mat_mul_256(double *A, double *B, double *C, int size, int tile_size) {
     for (int i = 0; i < size; i += tile_size) {
         for (int j = 0; j < size; j += tile_size) {
             for (int k = 0; k < size; k += tile_size) {
@@ -191,6 +383,20 @@ void combination_mat_mul(double *A, double *B, double *C, int size, int tile_siz
     }
 }
 
+void combination_mat_mul(double *A, double *B, double *C, int size, int tile_size) {
+#if SIMD_WIDTH == 128
+    combination_mat_mul_128(A, B, C, size, tile_size);
+#elif SIMD_WIDTH == 512
+#ifdef __AVX512F__
+    combination_mat_mul_512(A, B, C, size, tile_size);
+#else
+#error "SIMD_WIDTH=512 requested but AVX-512 is not enabled (build with -mavx512f)"
+#endif
+#else
+    combination_mat_mul_256(A, B, C, size, tile_size);
+#endif
+}
+
 int main(int argc, char **argv) {
 
     if (argc <= 1) {
@@ -216,6 +422,28 @@ int main(int argc, char **argv) {
         auto end = std::chrono::high_resolution_clock::now();
         auto t = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
         printf("Naive matrix multiplication took %ld ms to execute \n", t);
+    }
+#endif
+
+#ifdef OPTIMIZE_LOOP_REORDER
+    initialize_result_matrix(C, size, size);
+    {
+        auto start = std::chrono::high_resolution_clock::now();
+        loop_reorder_mat_mul(A, B, C, size);
+        auto end = std::chrono::high_resolution_clock::now();
+        auto t = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+        printf("Loop reordered matrix multiplication took %ld ms to execute \n", t);
+    }
+#endif
+
+#ifdef OPTIMIZE_LOOP_UNROLL
+    initialize_result_matrix(C, size, size);
+    {
+        auto start = std::chrono::high_resolution_clock::now();
+        loop_unroll_mat_mul(A, B, C, size);
+        auto end = std::chrono::high_resolution_clock::now();
+        auto t = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
+        printf("Loop unrolled matrix multiplication took %ld ms to execute \n", t);
     }
 #endif
 
@@ -248,7 +476,7 @@ int main(int argc, char **argv) {
         simd_mat_mul(A, B, C, size);
         auto end = std::chrono::high_resolution_clock::now();
         auto t = std::chrono::duration_cast<std::chrono::milliseconds>(end - start).count();
-        printf("SIMD matrix multiplication took %ld ms to execute \n", t);
+        printf("SIMD (%d-bit) matrix multiplication took %ld ms to execute \n", SIMD_WIDTH, t);
     }
 #endif
 

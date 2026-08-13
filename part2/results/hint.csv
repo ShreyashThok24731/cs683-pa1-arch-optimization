@@ -1,9 +1,9 @@
 hint,run,us
-0,prefetch,778
-0,prefetch_simd,352
-1,prefetch,747
-1,prefetch_simd,439
-2,prefetch,743
-2,prefetch_simd,483
-3,prefetch,914
-3,prefetch_simd,388
+0,prefetch,587
+0,prefetch_simd,260
+1,prefetch,575
+1,prefetch_simd,290
+2,prefetch,564
+2,prefetch_simd,310
+3,prefetch,563
+3,prefetch_simd,256

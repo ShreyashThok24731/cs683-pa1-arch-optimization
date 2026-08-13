@@ -1,6 +1,6 @@
 variant,ms
-Basic,1593.00
-Reordered,998.00
-Unrolled,611.00
-Tiled,1038.00
-Vectorized,227.00
+Basic,1463.00
+Reordered,922.00
+Unrolled,562.00
+Tiled,967.00
+Vectorized,210.00

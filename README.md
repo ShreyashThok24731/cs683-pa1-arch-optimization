@@ -1,59 +1,71 @@
 # Architecture-Aware Optimization: Matmul, NN Training & Embedding Lookup
 
-Hand-tuned C/C++ kernels showing how much wall-clock performance is left on the table
-by a naive implementation, and how loop unrolling/reordering, cache tiling, SIMD
-(SSE/AVX2/AVX-512), and software prefetching each recover it — measured on real
-hardware with `perf`, not simulated.
+Hand-tuned C/C++ kernels showing how much wall-clock performance a naive implementation
+leaves on the table, and how loop unrolling/reordering, cache tiling, SIMD
+(SSE/AVX2/AVX-512), and software prefetching each recover it — measured on real hardware
+with `perf`, not simulated.
 
-All variants are compiled with `-O0` and only ISA feature flags, so every speedup
-reported comes from the algorithm and memory-access pattern, not the compiler.
+Every variant is compiled with `-O0` and ISA feature flags only, so all reported speedups
+come from the algorithm and memory-access pattern rather than the compiler.
 
 Assignment spec: [`CS683 PA1 2025.pdf`](CS683%20PA1%202025.pdf)
 
 ## Parts
 
-- **[`part1/`](part1/README.md)** — Matrix multiplication, both standalone and inside
-  a small neural network's training loop. Loop reorder/unroll, tiling, AVX2+FMA SIMD,
-  and a combined tiling+SIMD+register-blocking variant.
-- **[`part2/`](part2/README.md)** — Sum-pooled embedding table lookup (the
+- **[`part1/`](part1/README.md)** — *The Matrix.* Matrix multiplication, standalone and
+  inside a neural network's training loop. Loop reordering, loop unrolling, tiling across
+  four tile sizes, SIMD at three register widths, and a combined tiling + register-blocked
+  SIMD variant.
+- **[`part2/`](part2/README.md)** — *Embed it.* Sum-pooled embedding-table lookup (the
   gather-and-reduce pattern behind recommendation-model embedding bags). Software
-  prefetching (configurable distance/hint) and SIMD (SSE/AVX2/AVX-512), standalone
-  and combined.
+  prefetching with tunable distance and cache fill level, SIMD at three widths, and both
+  combined.
 
-## Headline results (Intel i9-11900H, Tiger Lake, AVX-512, single-threaded)
+## Headline results — Intel i9-11900H (Tiger Lake, AVX-512), single-threaded
 
-| Workload | Naive | Best combined | Speedup |
+| Workload | Naive | Best variant | Speedup |
 |---|---:|---:|---:|
-| Matrix multiplication (N=1024) | 5543 ms | 790 ms (tiling + SIMD) | **7.0×** |
-| Neural-net training epoch (512×512, batch 512) | 9781 ms | 1411 ms (tiling + SIMD) | **6.9×** |
-| Embedding lookup (1M×128 table, 2048 lookups) | ~850 µs | ~230 µs (prefetch + AVX-512) | **3.7×** |
+| Matrix multiplication (N=2048) | 62 871 ms | 4 091 ms — tiling + SIMD 512-bit | **15.4×** |
+| Neural-net training epoch (512², batch 512) | 8 823 ms | 1 305 ms — tiling + SIMD | **6.8×** |
+| Embedding lookup (200K×128, 2048 lookups) | 721 µs | 228 µs — prefetch + SIMD 512-bit | **3.2×** |
 
-See each part's README for the full per-size tables, build/run instructions, and the
-parameter sweeps behind `plots/`.
+Two results worth calling out:
+
+- **Register width dominates for matmul.** Retired instructions at N=2048 fall
+  396.8 B → 237.5 B → 119.3 B → 63.5 B going scalar → 128 → 256 → 512-bit, and wall-clock
+  tracks it. Combining tiling with SIMD at matched width beats either alone (15.4× vs
+  9.95× for SIMD-512 by itself).
+- **MPKI can move the wrong way.** Tiling cuts absolute L1-D misses 13% but cuts
+  instructions 39%, so misses-per-kilo-instruction *rises*. See
+  [part1](part1/README.md#1b--what-mpki-actually-shows-n2048) for why absolute misses are
+  the honest metric here.
+
+## Measurement notes
+
+- Execution times are the median of 3 runs.
+- Part 1 counters cover the whole process, which is sound because the kernel dominates
+  (naive scales as N³: 7.95× from N=512 to N=1024).
+- Part 2 counters are **gated to the kernel region** via perf's control FIFO. The
+  embedding table is up to 1 GB and its `mt19937` fill costs ~86 billion instructions,
+  which would otherwise swamp the ~8 million instructions of the kernel and make all four
+  variants look identical.
+- Correctness: every optimized variant is checked against the naive reference
+  (`make verify` in each part).
 
 ## Reproducing
 
 ```bash
-# Part 1 — matmul
-cd part1/mat_mul
-make naive loop simd
-for T in 16 32 64 128; do make tiling TILE_SIZE=$T; make combination TILE_SIZE=$T; done
-g++ -O0 -mavx2 -mfma -msse2 verify.cpp -o bin/verify && ./bin/verify   # correctness
-./run_experiments.sh                                                    # ~2 min
-python3 plot_results.py
+# Part 1 - matmul
+cd part1/mat_mul && make && make verify && ./bin/verify
+./run_experiments.sh && python3 plot_results.py     # ~25 min (N up to 2048)
 
-# Part 1 — neural net
-cd ../neural_net
-make
-./run_experiments.sh
-python3 plot_results.py
+# Part 1 - neural net
+cd ../neural_net && make
+./run_experiments.sh && python3 plot_results.py
 
-# Part 2 — embedding
-cd ../../part2
-make
-g++ -O0 -mavx2 -mfma -msse2 -mavx512f verify_emb.cpp -o bin/verify_emb && ./bin/verify_emb
-./run_experiments.sh                                                    # ~15 min at largest sizes
-python3 plot_results.py
+# Part 2 - embedding
+cd ../../part2 && make && make verify && ./bin/verify_emb
+./run_experiments.sh && python3 plot_results.py && python3 make_tables.py   # ~10 min
 ```
 
 ## Layout
@@ -61,10 +73,14 @@ python3 plot_results.py
 ```
 .
 ├── part1/
-│   ├── mat_mul/       matmul.c + 5 variants, verify.cpp, Makefile, results/, plots/
-│   └── neural_net/    Matrix/Layer/NeuralNetwork, same 5 variants per layer
+│   ├── mat_mul/       mat_mul.c (naive, reorder, unroll, tiling, SIMD x3, tiling+SIMD x3)
+│   └── neural_net/    same techniques inside Layer::forward / backward
 └── part2/
-    ├── emb.cpp         naive / prefetch / SIMD / prefetch+SIMD embedding lookup
-    ├── verify_emb.cpp
-    └── results/, plots/
+    ├── emb.cpp        naive / prefetch / SIMD / prefetch+SIMD embedding lookup
+    └── results/       CSV sweeps + tables.md (Tables 2.1, 2.2, 2.3)
 ```
+
+## Known gap
+
+Task 2A deliverable 5 — toggling the **hardware prefetchers** via MSR `0x1a4` and
+analysing the impact — is not covered; it requires root on the test machine.

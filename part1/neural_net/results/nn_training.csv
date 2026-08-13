@@ -1,6 +1,6 @@
 variant,ms
-Basic,9781
-Reordered,6143
-Unrolled,3885
-Tiled,6485
-Vectorized,1411
+Basic,8823
+Reordered,5613
+Unrolled,3486
+Tiled,5860
+Vectorized,1305

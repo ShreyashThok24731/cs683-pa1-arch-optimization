@@ -7,9 +7,32 @@
 #include <cstdlib>
 #include <string>
 #include <cstring>
+#include <fcntl.h>
+#include <unistd.h>
 
 using namespace std;
 using namespace std::chrono;
+
+static int perf_ctl_fd = -1;
+static int perf_ack_fd = -1;
+
+static void perf_ctl_init() {
+    const char* ctl = getenv("EMB_CTL_FIFO");
+    const char* ack = getenv("EMB_ACK_FIFO");
+    if (!ctl || !ack) return;
+    perf_ctl_fd = open(ctl, O_RDWR);
+    perf_ack_fd = open(ack, O_RDWR);
+}
+
+static void perf_cmd(const char* cmd) {
+    if (perf_ctl_fd < 0 || perf_ack_fd < 0) return;
+    if (write(perf_ctl_fd, cmd, strlen(cmd)) < 0) return;
+    char buf[16];
+    if (read(perf_ack_fd, buf, sizeof(buf)) < 0) return;
+}
+
+static inline void perf_begin() { perf_cmd("enable\n"); }
+static inline void perf_end()   { perf_cmd("disable\n"); }
 
 static int embedding_table_size = 1000000;
 static int embedding_dim        = 128;
@@ -233,6 +256,9 @@ int main() {
     PREFETCH_HINT        = env_int("EMB_HINT",         PREFETCH_HINT);
     SIMD_BITS            = env_int("EMB_SIMD_WIDTH",   SIMD_BITS);
     int only             = env_int("EMB_ONLY", 0);
+    int reps             = env_int("EMB_REPS", 1);
+
+    perf_ctl_init();
 
     vector<float> embedding_table((size_t)embedding_table_size * embedding_dim);
     for (auto& v : embedding_table) v = static_cast<float>(random_int(1000));
@@ -243,25 +269,35 @@ int main() {
 
     cout << "run,us\n";
 
-    if (only == 0 || only == 1) {
-        flush_table(embedding_table);
-        long long t = naive_emb(embedding_table, input, offsets);
-        cout << "naive," << t << "\n";
-    }
-    if (only == 0 || only == 2) {
-        flush_table(embedding_table);
-        long long t = run_with_prefetching(embedding_table, input, offsets);
-        cout << "prefetch," << t << "\n";
-    }
-    if (only == 0 || only == 3) {
-        flush_table(embedding_table);
-        long long t = run_with_simd(embedding_table, input, offsets);
-        cout << "simd," << t << "\n";
-    }
-    if (only == 0 || only == 4) {
-        flush_table(embedding_table);
-        long long t = run_with_prefetching_simd(embedding_table, input, offsets);
-        cout << "prefetch_simd," << t << "\n";
+    for (int r = 0; r < reps; ++r) {
+        if (only == 0 || only == 1) {
+            flush_table(embedding_table);
+            perf_begin();
+            long long t = naive_emb(embedding_table, input, offsets);
+            perf_end();
+            cout << "naive," << t << "\n";
+        }
+        if (only == 0 || only == 2) {
+            flush_table(embedding_table);
+            perf_begin();
+            long long t = run_with_prefetching(embedding_table, input, offsets);
+            perf_end();
+            cout << "prefetch," << t << "\n";
+        }
+        if (only == 0 || only == 3) {
+            flush_table(embedding_table);
+            perf_begin();
+            long long t = run_with_simd(embedding_table, input, offsets);
+            perf_end();
+            cout << "simd," << t << "\n";
+        }
+        if (only == 0 || only == 4) {
+            flush_table(embedding_table);
+            perf_begin();
+            long long t = run_with_prefetching_simd(embedding_table, input, offsets);
+            perf_end();
+            cout << "prefetch_simd," << t << "\n";
+        }
     }
     return 0;
 }

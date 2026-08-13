@@ -2,22 +2,22 @@
 === Matrix Multiplication Performance Benchmark ===
 Matrix size: 512x512
 
-         Basic (ijk):  1593.00 ms
-     Reordered (ikj):   998.00 ms
-            Unrolled:   611.00 ms
-       Tiled/Blocked:  1038.00 ms
-     SIMD Vectorized:   227.00 ms
+         Basic (ijk):  1463.00 ms
+     Reordered (ikj):   922.00 ms
+            Unrolled:   562.00 ms
+       Tiled/Blocked:   967.00 ms
+     SIMD Vectorized:   210.00 ms
 
 Speedup over basic implementation:
-     Reordered (ikj):   1.60x
-            Unrolled:   2.61x
-       Tiled/Blocked:   1.53x
-     SIMD Vectorized:   7.02x
+     Reordered (ikj):   1.59x
+            Unrolled:   2.60x
+       Tiled/Blocked:   1.51x
+     SIMD Vectorized:   6.97x
 Matrix: Matrix A:
-  0.0237   0.8356  -0.3559   0.7299 
- -0.8287  -0.3393  -0.1656   0.3717 
-  0.7807  -0.6126  -0.0612  -0.4338 
-  0.6177  -0.1901  -0.8153  -0.4944 
+ -0.3623  -0.3406   0.5851  -0.3414 
+ -0.0222  -0.2450  -0.3117   0.6300 
+  0.1148   0.0994   0.7764  -0.6992 
+ -0.6066   0.6519   0.0191  -0.1645 
 Matrix multiplication benchmark completed.
 
 === Neural Network Training Performance ===
@@ -25,18 +25,18 @@ Input Matrix:
 Target Matrix:
 
 Training with different optimizations:
-Total loss: 87248.8377 over 262144.0000 elements.
-          Basic - Time:   9781 ms - Final Loss: 0.332828
+Total loss: 87078.6065 over 262144.0000 elements.
+          Basic - Time:   8823 ms - Final Loss: 0.332179
  - Counter: 8
-Total loss: 87248.837742 over 262144.000000 elements.
-      Reordered - Time:   6143 ms - Final Loss: 0.332828
+Total loss: 87078.606515 over 262144.000000 elements.
+      Reordered - Time:   5613 ms - Final Loss: 0.332179
  - Counter: 8
-Total loss: 87248.837742 over 262144.000000 elements.
-       Unrolled - Time:   3885 ms - Final Loss: 0.332828
+Total loss: 87078.606515 over 262144.000000 elements.
+       Unrolled - Time:   3486 ms - Final Loss: 0.332179
  - Counter: 8
-Total loss: 87248.837742 over 262144.000000 elements.
-          Tiled - Time:   6485 ms - Final Loss: 0.332828
+Total loss: 87078.606515 over 262144.000000 elements.
+          Tiled - Time:   5860 ms - Final Loss: 0.332179
  - Counter: 8
-Total loss: 87248.837742 over 262144.000000 elements.
-     Vectorized - Time:   1411 ms - Final Loss: 0.332828
+Total loss: 87078.606515 over 262144.000000 elements.
+     Vectorized - Time:   1305 ms - Final Loss: 0.332179
  - Counter: 8
