@@ -43,8 +43,9 @@ Two results worth calling out:
 ## Measurement notes
 
 - Execution times are the median of 3 runs.
-- Part 1 counters cover the whole process, which is sound because the kernel dominates
-  (naive scales as N³: 7.95× from N=512 to N=1024).
+- Part 1 counters cover the whole process, which is sound because the kernel dominates:
+  naive instruction counts scale as N³ across the whole range (7.88× / 7.95× / 7.98× for
+  each doubling of N, against a theoretical 8×), so matrix setup is negligible.
 - Part 2 counters are **gated to the kernel region** via perf's control FIFO. The
   embedding table is up to 1 GB and its `mt19937` fill costs ~86 billion instructions,
   which would otherwise swamp the ~8 million instructions of the kernel and make all four

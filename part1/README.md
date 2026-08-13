@@ -117,6 +117,28 @@ T = 16 / 32 / 64 / 128) for the same reason. At smaller N the tile size matters 
 more: with a 48 KiB, 12-way, 64-set L1-D, a stride of `size` doubles maps successive B
 rows onto few sets, so some (N, T) pairs thrash on conflict misses while others do not.
 
+### 1B — best tile size
+
+Execution time (ms) by tile size:
+
+| N | T=16 | T=32 | T=64 | T=128 | Best |
+|---|---:|---:|---:|---:|---|
+| 256 | 31 | 36 | 34 | 34 | T=16 |
+| 512 | 273 | 281 | 269 | 272 | T=64 |
+| 1024 | 2207 | 2327 | 2203 | **2138** | T=128 |
+| 2048 | 18425 | 18381 | 17248 | **16785** | T=128 |
+
+**T=128 is the best tile size on this hardware**, and the same holds for tiling+SIMD
+(N=2048: 5119 / 4522 / 4299 / **4091** ms for T = 16 / 32 / 64 / 128). The advantage only
+becomes clear once the matrix is large enough to stress the cache — at N=256 and N=512
+the spread across tile sizes is a few percent and within run-to-run noise, so no tile
+size is meaningfully better there.
+
+A 128×128 tile of doubles is 128 KiB per matrix, which overflows the 48 KiB L1-D but sits
+comfortably inside the 1.25 MiB L2. That is the level this kernel is really blocking for:
+larger tiles amortise loop overhead and give the strided B access more reuse per tile
+load, and L2 is big enough to absorb all three tiles.
+
 ## `neural_net/` — matmul inside a training loop
 
 A 2-layer sigmoid network whose forward and backward passes route every matrix multiply
