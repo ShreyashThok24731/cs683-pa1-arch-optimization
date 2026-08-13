@@ -8,6 +8,8 @@ hardware with `perf`, not simulated.
 All variants are compiled with `-O0` and only ISA feature flags, so every speedup
 reported comes from the algorithm and memory-access pattern, not the compiler.
 
+Assignment spec: [`CS683 PA1 2025.pdf`](CS683%20PA1%202025.pdf)
+
 ## Parts
 
 - **[`part1/`](part1/README.md)** — Matrix multiplication, both standalone and inside
