@@ -1,0 +1,42 @@
+
+=== Matrix Multiplication Performance Benchmark ===
+Matrix size: 512x512
+
+         Basic (ijk):  1593.00 ms
+     Reordered (ikj):   998.00 ms
+            Unrolled:   611.00 ms
+       Tiled/Blocked:  1038.00 ms
+     SIMD Vectorized:   227.00 ms
+
+Speedup over basic implementation:
+     Reordered (ikj):   1.60x
+            Unrolled:   2.61x
+       Tiled/Blocked:   1.53x
+     SIMD Vectorized:   7.02x
+Matrix: Matrix A:
+  0.0237   0.8356  -0.3559   0.7299 
+ -0.8287  -0.3393  -0.1656   0.3717 
+  0.7807  -0.6126  -0.0612  -0.4338 
+  0.6177  -0.1901  -0.8153  -0.4944 
+Matrix multiplication benchmark completed.
+
+=== Neural Network Training Performance ===
+Input Matrix:
+Target Matrix:
+
+Training with different optimizations:
+Total loss: 87248.8377 over 262144.0000 elements.
+          Basic - Time:   9781 ms - Final Loss: 0.332828
+ - Counter: 8
+Total loss: 87248.837742 over 262144.000000 elements.
+      Reordered - Time:   6143 ms - Final Loss: 0.332828
+ - Counter: 8
+Total loss: 87248.837742 over 262144.000000 elements.
+       Unrolled - Time:   3885 ms - Final Loss: 0.332828
+ - Counter: 8
+Total loss: 87248.837742 over 262144.000000 elements.
+          Tiled - Time:   6485 ms - Final Loss: 0.332828
+ - Counter: 8
+Total loss: 87248.837742 over 262144.000000 elements.
+     Vectorized - Time:   1411 ms - Final Loss: 0.332828
+ - Counter: 8

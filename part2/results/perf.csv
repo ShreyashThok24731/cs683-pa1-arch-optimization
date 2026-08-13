@@ -1,0 +1,5 @@
+run,pd,L1D_load_misses,L2_misses,LLC_misses,sw_prefetch_access,instructions
+naive,0,38340287,,659240,0,86897932976
+prefetch,4,38102390,,697425,14417,86877529679
+simd,0,38403826,,613017,0,86880553689
+prefetch_simd,4,38343615,,609925,18992,86872342988

@@ -1,0 +1,9 @@
+size 128 done
+size 256 done
+size 512 done
+size 1024 done
+perf size 128 done
+perf size 256 done
+perf size 512 done
+perf size 1024 done
+done. see results/exec_time.csv and results/perf.csv

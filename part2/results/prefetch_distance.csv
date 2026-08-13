@@ -1,0 +1,15 @@
+pd,run,us
+1,prefetch,665
+1,prefetch_simd,431
+2,prefetch,679
+2,prefetch_simd,384
+4,prefetch,762
+4,prefetch_simd,418
+8,prefetch,865
+8,prefetch_simd,502
+16,prefetch,901
+16,prefetch_simd,397
+32,prefetch,794
+32,prefetch_simd,475
+64,prefetch,942
+64,prefetch_simd,541
